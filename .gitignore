@@ -6,7 +6,7 @@ config.json
 qq_auto_send.py
 QQautoBot.spec
 requirements.txt
-README.md
+/README.md
 
 # 模型文件（太大）
 *.tar
