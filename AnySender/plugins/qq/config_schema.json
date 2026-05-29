@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "qq_window_keywords": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1
+    },
+    "confidence": {"type": "number", "minimum": 0.5, "maximum": 1.0},
+    "search_wait_sec": {"type": "number", "minimum": 0},
+    "paste_wait_sec": {"type": "number", "minimum": 0},
+    "send_mode": {"type": "string", "enum": ["enter", "ctrl_enter", "none"]},
+    "text_interval_sec": {"type": "number", "minimum": 0},
+    "input_target": {
+      "type": "object",
+      "properties": {
+        "mode": {"type": "string", "enum": ["relative", "template"]},
+        "template_path": {"type": "string"},
+        "relative_x": {"type": "number", "minimum": 0, "maximum": 1},
+        "relative_y": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "required": ["mode", "template_path", "relative_x", "relative_y"]
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "template_path": {"type": "string"},
+        "min_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+        "luma_weight": {"type": "number", "minimum": 0, "maximum": 1},
+        "edge_weight": {"type": "number", "minimum": 0, "maximum": 1},
+        "hist_weight": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "required": ["enabled", "template_path", "min_similarity", "luma_weight", "edge_weight", "hist_weight"]
+    },
+    "validation_region": {
+      "type": "object",
+      "properties": {
+        "relative_x": {"type": "number", "minimum": 0, "maximum": 1},
+        "relative_y": {"type": "number", "minimum": 0, "maximum": 1},
+        "relative_w": {"type": "number", "minimum": 0.05, "maximum": 1},
+        "relative_h": {"type": "number", "minimum": 0.05, "maximum": 1}
+      },
+      "required": ["relative_x", "relative_y", "relative_w", "relative_h"]
+    }
+  },
+  "required": [
+    "qq_window_keywords", "confidence", "search_wait_sec", "paste_wait_sec",
+    "send_mode", "text_interval_sec", "input_target", "validation", "validation_region"
+  ]
+}

@@ -1,0 +1,26 @@
+qq_window_keywords: ["QQ", "Tencent QQ"]
+confidence: 0.85
+search_wait_sec: 1.2
+paste_wait_sec: 0.6
+send_mode: "enter"
+text_interval_sec: 0.02
+
+input_target:
+  mode: "relative"
+  template_path: ""
+  relative_x: 0.50
+  relative_y: 0.86
+
+validation:
+  enabled: true
+  template_path: ""
+  min_similarity: 0.82
+  luma_weight: 0.65
+  edge_weight: 0.25
+  hist_weight: 0.10
+
+validation_region:
+  relative_x: 0.22
+  relative_y: 0.79
+  relative_w: 0.70
+  relative_h: 0.17

@@ -1,0 +1,8 @@
+# 用户配置 —— 覆盖 presets/ 中的对应值
+# 只需写你想改的字段，未写的字段自动继承 preset
+
+app:
+  timezone: "Asia/Hong_Kong"
+
+logging:
+  level: "INFO"

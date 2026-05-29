@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 依赖自动回退标记
+deps/.fallback
+logs/
+*.log
+screenshots/temp/
+screenshots/failed/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 敏感文件
+.env
+credentials.json
+*.pem

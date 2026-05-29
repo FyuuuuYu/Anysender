@@ -1,0 +1,33 @@
+validation:
+  enabled: true
+  template_path: 'E:\QQautoBot\AnySender\screenshots\reference\屏幕截图 2026-05-11 182207.png'
+search_box:
+  relative_x: 0.0772
+  relative_y: 0.0838
+  relative_w: 0.1921
+  relative_h: 0.0496
+input_target:
+  relative_x: 0.3246
+  relative_y: 0.6496
+  relative_w: 0.6712
+  relative_h: 0.3419
+validation_region:
+  relative_x: 0.3246
+  relative_y: 0.159
+  relative_w: 0.6712
+  relative_h: 0.4786
+chat_header:
+  relative_x: 0.3215
+  relative_y: 0.0735
+  relative_w: 0.4322
+  relative_h: 0.0769
+contact_list:
+  relative_x: 0.0574
+  relative_y: 0.159
+  relative_w: 0.263
+  relative_h: 0.8359
+search_box_target:
+  relative_x: 0.0772
+  relative_y: 0.0838
+  relative_w: 0.1921
+  relative_h: 0.0496

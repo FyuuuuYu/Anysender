@@ -1,0 +1,18 @@
+# 旧版 v1 项目文件
+__pycache__/
+build/
+dist/
+config.json
+qq_auto_send.py
+QQautoBot.spec
+requirements.txt
+README.md
+
+# 模型文件（太大）
+*.tar
+*.zip
+*.onnx
+*.pth
+
+# AnySender 副本
+AnySender - 副本/

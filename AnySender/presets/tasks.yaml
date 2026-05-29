@@ -1,0 +1,11 @@
+tasks:
+  - name: "示例任务"
+    enabled: false
+    plugin: "qq"
+    schedule: "0 30 21 * * *"
+    plugin_config:
+      group_name: "测试群"
+      message: "自动发送测试"
+      images:
+        - "E:/images/a.jpg"
+        - "E:/images/b.png"

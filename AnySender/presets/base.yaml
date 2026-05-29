@@ -1,0 +1,30 @@
+# AnySender 核心配置
+app:
+  name: "AnySender"
+  version: "2.0.0"
+  timezone: "Asia/Shanghai"
+
+scheduler:
+  max_workers: 8
+  misfire_grace_time: 60
+  coalesce: true
+
+logging:
+  level: "INFO"
+  format: "json"
+  log_dir: "logs"
+  max_bytes: 10485760
+  backup_count: 30
+
+watchdog:
+  config_watch: true
+  health_interval: 30
+  reload_delay: 300
+
+notify:
+  enabled: true
+  early_seconds: 300
+  soon_seconds: 30
+
+plugins:
+  load_on_startup: []
