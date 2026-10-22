@@ -78,6 +78,23 @@ def main():
     watchdog.start(health_interval=core_config.get("watchdog", {}).get("health_interval", 30))
 
     logger.info(f"AnySender 启动完成，共 {scheduler.job_count()} 个任务")
+
+    # 启动 Web 控制台（独立线程 + 自动开浏览器）
+    import threading
+    from web import app as web_app
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    web_app.bind(
+        scheduler, plugin_manager, event_bus, logger,
+        config_tasks_path=os.path.join(base_dir, "config", "tasks.yaml"),
+        sys_path=base_dir,
+    )
+    web_thread = threading.Thread(
+        target=web_app.run,
+        kwargs={"host": "127.0.0.1", "port": 8765, "open_browser": True},
+        daemon=True,
+    )
+    web_thread.start()
+
     try:
         scheduler.start()
         while True:

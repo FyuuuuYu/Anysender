@@ -1,11 +1,11 @@
 tasks:
-  - name: "test"
-    enabled: true
-    plugin: "qq"
-    schedule: "0 35 21 * * *"
-    plugin_config:
-      group_name: "飞鱼的记事本"
-      message: "bottest"
-      images:
-        - "D:\\camera\\哥们的例图\\例图成片andPSD\\录舞例图.jpg"
-        - "D:\\camera\\哥们的例图\\例图成片andPSD\\例图.jpg"
+- name: test
+  plugin: qq
+  enabled: false
+  schedule: 0 35 21 * * *
+  plugin_config:
+    group_name: 飞鱼的记事本
+    message: bottest
+    images:
+    - D:\camera\哥们的例图\例图成片andPSD\录舞例图.jpg
+    - D:\camera\哥们的例图\例图成片andPSD\例图.jpg

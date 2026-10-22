@@ -2,6 +2,7 @@ import json
 import logging
 import logging.handlers
 import os
+from collections import deque
 from datetime import datetime, timezone as tz
 from typing import Optional
 
@@ -11,6 +12,8 @@ LOG_RECORD_ATTRS = {
     "task_name", "plugin_name", "duration_ms", "detail",
     "retryable", "artifacts", "event",
 }
+
+MAX_RING = 500
 
 
 class StructuredFormatter(logging.Formatter):
@@ -38,11 +41,35 @@ class StructuredFormatter(logging.Formatter):
             return f"[{ts}] [{record.levelname}] [{record.name}] {record.getMessage()}"
 
 
+class RingHandler(logging.Handler):
+    """内存日志环 —— 供 Web 控制台 SSE 实时读取。"""
+
+    def __init__(self, maxlen: int = MAX_RING):
+        super().__init__()
+        self._ring = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            payload = {
+                "ts": datetime.fromtimestamp(record.created, tz=tz.utc).isoformat(),
+                "level": record.levelname,
+                "msg": record.getMessage(),
+            }
+            for attr in LOG_RECORD_ATTRS:
+                val = getattr(record, attr, None)
+                if val is not None:
+                    payload[attr] = val
+            self._ring.append(payload)
+        except Exception:
+            pass
+
+
 class Logger:
     def __init__(self, event_bus: EventBus, config_path: str = "config/base.yaml"):
         self._event_bus = event_bus
         self._logger = logging.getLogger("AnySender")
         self._logger.setLevel(logging.DEBUG)
+        self._ring = deque(maxlen=MAX_RING)
         self._setup_handlers()
         self._subscribe_events()
 
@@ -74,6 +101,10 @@ class Logger:
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(StructuredFormatter("json"))
         self._logger.addHandler(error_handler)
+
+        ring_handler = RingHandler(MAX_RING)
+        ring_handler.setLevel(logging.DEBUG)
+        self._logger.addHandler(ring_handler)
 
     def _subscribe_events(self):
         self._event_bus.subscribe("task_completed", self._on_task_completed)
