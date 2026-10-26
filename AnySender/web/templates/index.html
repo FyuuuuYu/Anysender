@@ -1,101 +1,154 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AnySender 控制台</title>
+<title>AnySender · 控制台</title>
+<link rel="icon" href="data:,">
+<script>
+  try {
+    const saved = localStorage.getItem("anysender-theme");
+    if (saved) document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+</script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="app">
 
+<div class="app">
   <header class="topbar">
     <div class="brand">
       <span class="logo-dot"></span>
       <h1>AnySender</h1>
+      <span class="env" id="envBadge">local</span>
     </div>
-    <div class="topbar-status">
-      <div class="status-pill pill-ok" id="statusPill">
-        <span class="dot"></span>
-        <span id="statusText">运行中</span>
-        <span class="sep">·</span>
-        <span id="jobCount">0</span> 调度
-        <span class="sep">·</span>
-        <span id="runningCount">0</span> 运行中
-        <span class="sep">·</span>
-        <span id="pluginCount">0</span> 插件
-      </div>
-      <div class="next-run">下次：<span id="nextRun">—</span></div>
+    <div class="top-actions">
+      <button class="status-pill" id="statusPill" data-state="ok" title="点击刷新状态">
+        <span class="dot"></span><span id="statusText">连接中…</span>
+      </button>
+      <button class="btn-icon" id="themeBtn" aria-label="切换主题" title="切换主题">🌙</button>
     </div>
   </header>
 
+  <div class="banner" id="dryBanner" hidden>
+    <strong>试运行模式</strong>
+    <span>只做窗口定位与校验，不会点击、输入或发送消息。</span>
+  </div>
+
+  <section class="stats" aria-label="概览">
+    <div class="stat"><span class="k">任务总数</span><span class="v" id="statTotal">0</span></div>
+    <div class="stat"><span class="k">已启用</span><span class="v ok" id="statEnabled">0</span></div>
+    <div class="stat"><span class="k">下次执行</span><span class="v small" id="statNext">—</span></div>
+    <div class="stat"><span class="k">插件</span><span class="v small ok" id="statPlugins">—</span></div>
+  </section>
+
   <main class="layout">
-    <section class="panel tasks-panel">
+    <section class="panel tasks-panel" id="tasksPanel">
       <div class="panel-head">
-        <h2>任务列表</h2>
-        <button class="btn btn-primary" id="btnNew">+ 新建任务</button>
+        <h2>任务</h2>
+        <button class="btn btn-primary" id="btnNew">＋ 新建任务</button>
       </div>
       <div class="task-list" id="taskList"></div>
+      <div class="empty" id="taskEmpty" hidden>
+        <p>还没有任务，点右上角「新建任务」开始。</p>
+        <button class="btn btn-primary btn-sm" id="btnEmptyNew">新建任务</button>
+      </div>
     </section>
 
-    <aside class="panel log-panel">
+    <aside class="panel log-panel" id="logPanel">
       <div class="panel-head">
         <h2>实时日志</h2>
-        <button class="btn btn-ghost" id="btnClearLog">清空</button>
+        <div class="log-tools">
+          <select id="logFilter" aria-label="日志级别过滤">
+            <option value="ALL">全部</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <button class="btn btn-ghost btn-sm is-on" id="btnAutoScroll" title="自动滚动到底部">自动滚动</button>
+          <button class="btn btn-ghost btn-sm" id="btnClearLog">清屏</button>
+        </div>
       </div>
-      <div class="log-box" id="logBox"></div>
+      <div class="log-box" id="logBox" role="log" aria-live="polite"></div>
+      <div class="log-foot" id="logCount">等待日志…</div>
     </aside>
   </main>
 </div>
 
-<!-- 任务编辑弹窗 -->
+<!-- 新建/编辑弹窗 -->
 <div class="modal-mask" id="modalMask" hidden>
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-head">
-      <h3 id="modalTitle">新建任务</h3>
-      <button class="btn-icon" id="btnCloseModal">×</button>
+      <div>
+        <h3 id="modalTitle">新建任务</h3>
+        <p class="modal-sub" id="modalSub">配置平台、目标与发送内容</p>
+      </div>
+      <button class="btn-icon" id="btnCloseModal" aria-label="关闭">✕</button>
     </div>
-    <form id="taskForm">
+    <form id="taskForm" novalidate>
       <input type="hidden" id="f_oldName">
-      <label>任务名
-        <input type="text" id="f_name" placeholder="如：早报发送" required>
-      </label>
-      <label>插件
-        <select id="f_plugin">
-          <option value="qq">qq</option>
-          <option value="wechat">wechat</option>
-          <option value="dingtalk">dingtalk</option>
-          <option value="feishu">feishu</option>
-        </select>
-      </label>
-      <label>群名 / 联系人
-        <input type="text" id="f_group" placeholder="如：工作群" required>
-      </label>
-      <label>Cron 表达式（秒 分 时 日 月 周）
-        <input type="text" id="f_schedule" placeholder="0 30 8 * * *">
-      </label>
-      <label>消息内容（纯文本）
-        <input type="text" id="f_message" placeholder="发送的文本，可与图片二选一">
-      </label>
-      <label>图片路径（每行一个，可留空）
-        <textarea id="f_images" rows="3" placeholder="E:/images/a.png"></textarea>
-      </label>
-      <p class="form-hint">消息与图片至少填一项；不填图片即纯文本发送。</p>
-      <div class="switch-row">
-        <label class="switch-label">启用
-          <input type="checkbox" id="f_enabled" checked>
-          <span class="switch"></span>
+
+      <div class="form-grid">
+        <label class="field"><span>任务名 *</span>
+          <input type="text" id="f_name" placeholder="如：早报发送" required>
+        </label>
+        <label class="field"><span>插件 *</span>
+          <select id="f_plugin"></select>
         </label>
       </div>
+
+      <label class="field"><span>群名 / 联系人</span>
+        <input type="text" id="f_group" placeholder="如：工作群">
+      </label>
+
+      <label class="field"><span>文本消息</span>
+        <textarea id="f_message" rows="3" placeholder="要发送的纯文本，可与图片二选一"></textarea>
+      </label>
+
+      <label class="field"><span>图片路径（每行一个）</span>
+        <textarea id="f_images" rows="3" placeholder="E:/images/a.png"></textarea>
+        <span class="hint" id="imageHint">0 张图片 · 纯文本任务可留空</span>
+      </label>
+
+      <label class="field"><span>Cron 表达式</span>
+        <input type="text" id="f_schedule" placeholder="0 30 8 * * *">
+        <span class="hint">六段：秒 分 时 日 月 周；仅手动任务可留空</span>
+      </label>
+
+      <div class="switch-row">
+        <label class="switch-label">
+          <input type="checkbox" id="f_enabled" checked>
+          <span class="switch"></span>
+          <span>启用定时</span>
+        </label>
+        <label class="switch-label">
+          <input type="checkbox" id="f_dry_run">
+          <span class="switch"></span>
+          <span>仅试运行</span>
+        </label>
+      </div>
+
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" id="btnCancel">取消</button>
-        <button type="submit" class="btn btn-primary">保存</button>
+        <button type="submit" class="btn btn-primary" id="btnSave">保存</button>
       </div>
     </form>
   </div>
 </div>
 
-<div class="toasts" id="toasts"></div>
+<!-- 确认弹窗 -->
+<div class="modal-mask" id="confirmMask" hidden>
+  <div class="modal modal-sm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <h3 id="confirmTitle">确认操作</h3>
+    <p class="confirm-text" id="confirmText"></p>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="btnConfirmCancel">取消</button>
+      <button class="btn btn-danger" id="btnConfirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

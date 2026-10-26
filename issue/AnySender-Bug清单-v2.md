@@ -39,7 +39,7 @@
 | P1-7 | ✅ 已修 | 预通知改用 `ZoneInfo(config 时区)`，不再 `datetime.now(tz.utc)` 混用 |
 | P1-9 | ✅ 已修 | 发送前检查：前台窗口含 QQ 关键词、输入点落在窗口内、群头 OCR 通过 |
 | P1-10 | ⚠️ 简化 | dry-run 只枚举窗口并报告，不点击、不输入、不发送；未做「填入输入框 + 截图对比」 |
-| P1-12 | ⚠️ 部分 | UI-1 完成：fetch 错误 toast、状态/调度/运行数/插件数/下次运行、试运行按钮、Cron 前端校验；UI-2…UI-5 open |
+| P1-12 | ⚠️ 部分 | UI 重构完成：顶栏统计、任务卡片、实时日志、双主题、响应式、确认框、试运行/编辑/删除；Playwright 2 条用例通过并出深/浅/移动端截图。剩余：UI-3 完整运行历史页、UI-4 校准向导 |
 | P2-3 | ✅ 已修 | `_do_work` 把任务顶层 `group_name/message/images` 并入 `resolved_config`，Web 新任务生效 |
 | P2-4 | ✅ 已修 | 失败截图与校验临时目录统一 slugify，特殊字符任务名不再抛异常 |
 | P2-6 | ✅ 已修 | 前端统一 `api()` 检查 `r.ok` + toast，不再静默失败 |
@@ -51,7 +51,7 @@
 | P1-8 | ✅ 已修 | `ocr.get_reader()` 3 次重试 + 失败冷却 60s；发送前 OCR 预检，不可用时在动 UI 之前中止（可重试），单测覆盖 |
 | 顺带 | ✅ | `send_message(clear_input=False)` 保留已粘贴图片；`health_check` tuple/bool 不一致修正；日志时间戳改本地时区；小图自动放大后再 OCR；状态 pill 类名修复、favicon 404 不再误记为 500、任务数标签改「调度」、启用任务缺 Cron 时前端拦截 |
 
-**仍未修**：P0-3（重校准）、P1-1（热重载）、P1-3（重试策略）、P1-11（checks 接入）、P2-2/5/8、P3-3/4/5，以及 P1-12 的 UI-2…UI-5。
+**仍未修**：P0-3（重校准）、P1-1（热重载）、P1-3（重试策略）、P1-11（checks 接入）、P2-2/5/8、P3-3/4/5，以及 P1-12 的 UI-3 完整历史页与 UI-4 校准向导。
 
 **验证记录**
 
@@ -69,7 +69,8 @@ ANYSENDER_DRY_RUN=1 python main.py --port 18765 --no-browser
 # curl -N /api/logs/stream -> 1s 内收到 data:；/api/runs 可回读
 # Playwright 1.64.1 + 系统 Edge（临时 .ui-smoke）
 npx @playwright/test test -c .ui-smoke/playwright.config.js    # 2 passed
-# 覆盖：状态 pill/日志加载、新建（停用）、试运行->202->台账「未点击」、编辑回填、删除、启用+空 Cron 前端拦截
+# 覆盖：状态 pill/日志加载、新建（停用）、试运行->202->台账「未点击」、编辑回填、主题切换、删除、启用+空 Cron 前端拦截
+# 截图：web_ui_final_dark.png / web_ui_final_light.png / web_ui_mobile.png
 ```
 
 **残余风险**：未做真机真实发送（本次刻意只做静默测试）；OCR 首次加载约 4s，发送前预检会把这 4s 花在动 UI 之前（引擎不可用则零点击中止）；群头 13px 小字在极端缩放下仍可能误读，目前靠放大 2–3 倍 + 归一化匹配缓解；群头校验用严格模式（只接受带括号的成员数后缀，裸数字后缀如「工作群2」拒绝），OCR 丢括号时会安全失败而非误发；P0-3 坐标/模板仍未按当前 QQ 版本重校准；SSE 断线重连会重放最近 100 条（仅日志重复，不影响发送）；双开 QQ 且未配置 `qq_window.pid` 时，多候选会明确报错而不是猜测，配置 PID 后可精确选择。
@@ -101,7 +102,7 @@ npx @playwright/test test -c .ui-smoke/playwright.config.js    # 2 passed
 | P1-9 | 发送前无「群/输入区」确认 | 新增（QQ 插件） | `pre_send`：窗口 + 群头 + 输入区三重 SSIM（复用 P1-11），默认 block | 错群/错窗口时零发送 | 1 |
 | P1-10 | 无 dry-run | 新增（P3-2 上调） | 定位 + 填输入框即停，不回车；截图对比；与 calibrate 合并 | dry-run 后群内无新消息，截图齐全 | 2 |
 | P1-11 | `checks/` 死代码（D3：接入日志） | `core/check_loader.py`；`checks/*` | `CheckRunner` 实例化；pre/post 阶段执行；`check_result` 事件进 Logger/SSE/台账；去重 validator | 启动日志有 check 计数；运行后日志/SSE 有 `check_result`；block 生效 | 3 |
-| P1-12 | WebUI 不可用/不可观测（D5） | `web/` | UI-1 基础修复 → UI-2 编辑器 → UI-3 运行视图 → UI-4 校准向导 → UI-5 打磨（详见补充文档第 6 节） | 冷启动全流程不写 YAML；错误可见；历史可回放 | 1/4 |
+| P1-12 | WebUI 不可用/不可观测（D5） | `web/` | UI-2 任务编辑器/卡片 → UI-5 主题与响应式已完成；UI-3 简化为「最近一次运行」，UI-4 校准向导未做 | 冷启动全流程不写 YAML；错误可见；最近运行可回看 | 3/4 |
 
 ## P2 — 一般（9）
 
@@ -153,7 +154,7 @@ npx @playwright/test test -c .ui-smoke/playwright.config.js    # 2 passed
 | 1 | 代码闭环：P0-1/2/4/5、P1-2/5/6/9、P2-6、UI-1 | 10 |
 | 2 | 校准：P0-3、P1-10、P2-8 | 3 |
 | 3 | checks：P1-11 + 三处去重 | 1 |
-| 4 | WebUI：UI-2…UI-5 + `/api/runs` 等 | 1 |
+| 4 | WebUI：UI-2/UI-5 完成；UI-3 部分（最近一次运行）；UI-4 未做 | 1 |
 | 5 | 可靠性：P1-1/3/4/7/8、P2-9、P3-1 | 7 |
 | 6 | 清理：P2-2/3/4/5/7/10、P3-5 | 7 |
 

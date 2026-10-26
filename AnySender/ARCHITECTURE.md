@@ -203,9 +203,10 @@ AnySender/
 │   ├── done/                           # 关闭校验时仍存档的截图
 │   └── reference/                      # 参考模板图
 │
-├── tests/                              # 测试目录（目录已建，当前为空）
-│   ├── test_core/
-│   └── test_plugins/
+├── tests/                              # unittest（41 项：配置/调度/日志/Web/QQ/OCR/窗口）
+│   ├── test_bugfixes.py
+│   ├── test_ocr.py
+│   └── test_window_select.py
 │
 ├── web/                                # Web 控制台（Flask，127.0.0.1:8765）
 │   ├── app.py                          # API + SSE 日志流
@@ -620,4 +621,5 @@ QQ 9 的窗口标题恒为 `QQ`，不包含群名，该方案失效。
 - OCR：新增 `plugins/qq/ocr.py`（3 次重试 + 60s 冷却 + 自适应放大 + 中文路径安全读写），发送前 OCR 预检。
 - 窗口：新增 `WindowInfo` 与 `find_qq_window()`，按进程名/PID/类名/标题黑名单/标题评分定位，多候选拒绝猜测。
 - Web：`/api/status` 增加 running/next_run/discovered，新增 `/api/runs`；前端 fetch 错误 toast、试运行按钮、状态 pill 修复。
+- Web UI：按桌面预览稿重构为「顶栏统计 + 任务卡片 + 实时日志」的深/浅双主题响应式控制台（无构建、原生 JS），Playwright 2 条冒烟用例通过；UI-3 完整运行历史、UI-4 校准向导未做。
 - 已知限制表同步更新（移除已修项，补充双开 PID、checks 未接入等）。
