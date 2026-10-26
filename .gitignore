@@ -15,3 +15,14 @@ requirements.txt
 
 # AnySender 副本
 AnySender - 副本/
+
+# 运行产物 / 本地测试
+AnySender/logs/runs.jsonl
+AnySender/screenshots/done/
+AnySender/screenshots/failed/
+AnySender/screenshots/temp/
+.ui-smoke/
+test-results/
+web_ui_*.png
+ui_probe*.js
+ui_console_check.js

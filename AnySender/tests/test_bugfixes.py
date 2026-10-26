@@ -205,6 +205,53 @@ class SchedulerTest(unittest.TestCase):
         errors = self.scheduler.reload_tasks()
         self.assertEqual(errors, [])
 
+    def _set_t1_enabled(self, enabled: bool) -> None:
+        with open(
+            os.path.join(self.root, "config", "tasks.yaml"), "w", encoding="utf-8"
+        ) as f:
+            f.write(
+                "tasks:\n"
+                "  - name: t1\n"
+                "    plugin: fake\n"
+                "    enabled: %s\n"
+                "    schedule: '0 0 8 * * *'\n"
+                "    message: hello\n" % ("true" if enabled else "false")
+            )
+
+    def test_postpone_uses_single_date_job_not_send_worker(self):
+        self._set_t1_enabled(True)
+        self.scheduler.start()
+        self.scheduler._on_postpone("t1", 3600)
+        self.scheduler._on_postpone("t1", 3600)
+        jobs = [
+            job
+            for job in self.scheduler._scheduler.get_jobs()
+            if job.id == "postpone_t1"
+        ]
+        self.assertEqual(len(jobs), 1, "同一任务重复推迟应覆盖而非叠加")
+        self.assertEqual(jobs[0].trigger.__class__.__name__, "DateTrigger")
+        self.assertEqual(
+            self.scheduler._executor._work_queue.qsize(), 0, "推迟不应占用发送线程池"
+        )
+
+    def test_postpone_fire_skips_disabled_task(self):
+        self._set_t1_enabled(False)
+        skipped = []
+        self.bus.subscribe("task_skipped", lambda **kw: skipped.append(kw))
+        self.scheduler._postpone_fire("t1")
+        self.assertTrue(skipped, "停用任务的推迟执行应被记录为跳过")
+        self.assertIn("任务已停用", skipped[0]["detail"])
+
+    def test_postpone_does_not_schedule_for_disabled_task(self):
+        self._set_t1_enabled(False)
+        self.scheduler._on_postpone("t1", 3600)
+        jobs = [
+            job
+            for job in self.scheduler._scheduler.get_jobs()
+            if job.id == "postpone_t1"
+        ]
+        self.assertEqual(jobs, [])
+
 
 class LoggerTest(unittest.TestCase):
     def test_ring_is_shared_and_monotonic(self):
@@ -496,6 +543,20 @@ class WebApiTest(unittest.TestCase):
         finally:
             resp.close()
         self.assertIn(b"data:", chunk)
+
+
+class ValidatorWriteTest(unittest.TestCase):
+    def test_write_png_supports_chinese_path(self):
+        import numpy as np
+
+        from plugins.qq.validator import _write_png
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "中文 目录", "测试 图.png")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            image = np.zeros((8, 8, 3), dtype=np.uint8)
+            self.assertTrue(_write_png(path, image))
+            self.assertGreater(os.path.getsize(path), 0)
 
 
 if __name__ == "__main__":

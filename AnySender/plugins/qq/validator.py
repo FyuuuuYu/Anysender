@@ -66,6 +66,23 @@ def hdr_robust_similarity(img_a_bgr: np.ndarray,
     }
 
 
+def _write_png(path: str, img_bgr) -> bool:
+    """写 PNG，兼容中文/空格路径。
+
+    cv2.imwrite 在 Windows 上底层用窄字符接口，路径含中文时可能返回 True
+    却没真正落盘（本项目 D:\\camera 截图就是这种情况）。imencode + tofile
+    走 numpy 文件句柄，不受路径编码影响。
+    """
+    ok, buf = cv2.imencode(".png", img_bgr)
+    if not ok:
+        return False
+    try:
+        buf.tofile(path)
+    except OSError:
+        return False
+    return os.path.exists(path)
+
+
 def validate_input_effect(task: dict, cfg: dict, qq_rect: tuple,
                           base_dir: str) -> Tuple[bool, str]:
     val_cfg = cfg.get("validation", {})
@@ -101,11 +118,16 @@ def validate_input_effect(task: dict, cfg: dict, qq_rect: tuple,
     os.makedirs(failed_root, exist_ok=True)
 
     temp_path = os.path.join(temp_dir, f"{task_name}_{ts}.png")
-    cv2.imwrite(temp_path, shot_bgr)
+    if not _write_png(temp_path, shot_bgr):
+        return False, "校验截图写入失败（路径编码/权限），未执行像素比对"
 
     score, detail = hdr_robust_similarity(shot_bgr, ref_bgr, cfg)
     if score >= min_score:
-        os.remove(temp_path)
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
         return True, (
             f"total={detail['total']:.4f} "
             f"(luma={detail['luma']:.4f}, edge={detail['edge']:.4f}, hist={detail['hist']:.4f})"
@@ -114,5 +136,7 @@ def validate_input_effect(task: dict, cfg: dict, qq_rect: tuple,
     failed_dir = os.path.join(failed_root, task_name, datetime.now().strftime("%Y%m%d"))
     os.makedirs(failed_dir, exist_ok=True)
     dst = os.path.join(failed_dir, f"{task_name}_{ts}_LOW_{score:.4f}.png")
+    if not os.path.exists(temp_path):
+        return False, f"total={detail['total']:.4f} < {min_score:.4f}，且截图写入失败"
     os.replace(temp_path, dst)
     return False, f"total={detail['total']:.4f} < {min_score:.4f}，截图保留: {dst}"

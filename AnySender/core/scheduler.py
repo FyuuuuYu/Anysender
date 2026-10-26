@@ -92,6 +92,7 @@ class Scheduler:
                 job.id.startswith("task_")
                 or job.id.startswith("pre_early_")
                 or job.id.startswith("pre_soon_")
+                or job.id.startswith("postpone_")
             ):
                 try:
                     job.remove()
@@ -324,17 +325,47 @@ class Scheduler:
                 self._running = max(0, self._running - 1)
 
     def _on_postpone(self, task_id: str, delay_seconds: int, **kwargs):
+        """推迟任务：交给 APScheduler 定时，不占用发送线程池。
+
+        旧实现用 `executor.submit(_delayed)` 在 worker 里 wait，会把 8 个发送
+        worker 之一占住数分钟，多任务同时推迟时会挤掉正常发送。
+        """
         task = self._find_task_by_id(task_id)
-        if not task:
+        if not task or not task.get("enabled", True):
             return
         delay_seconds = max(0, int(delay_seconds))
+        run_at = datetime.now(self._tz) + timedelta(seconds=delay_seconds)
+        self._scheduler.add_job(
+            self._postpone_fire,
+            trigger=DateTrigger(run_date=run_at),
+            args=[task_id],
+            id=f"postpone_{task_id}",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=60,
+        )
 
-        def _delayed():
-            if self._shutdown.wait(timeout=delay_seconds):
-                return
-            self._on_main_trigger(task)
-
-        self._executor.submit(_delayed)
+    def _postpone_fire(self, task_id: str) -> None:
+        """推迟到点后重新读取配置，避免执行停用/已删除任务的旧快照。"""
+        task = self._find_task_by_id(task_id)
+        if not task:
+            self._event_bus.emit(
+                "task_skipped",
+                task_name=task_id,
+                plugin_name="",
+                detail="推迟执行时任务已不存在",
+            )
+            return
+        if not task.get("enabled", True):
+            self._event_bus.emit(
+                "task_skipped",
+                task_name=task_id,
+                plugin_name=task.get("plugin", ""),
+                detail="任务已停用，取消本次推迟执行",
+            )
+            return
+        self._on_main_trigger(task)
 
     def _on_run_now(self, task_id: str, **kwargs):
         result = self.run_now(task_id)

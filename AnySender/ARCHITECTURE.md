@@ -203,7 +203,7 @@ AnySender/
 │   ├── done/                           # 关闭校验时仍存档的截图
 │   └── reference/                      # 参考模板图
 │
-├── tests/                              # unittest（41 项：配置/调度/日志/Web/QQ/OCR/窗口）
+├── tests/                              # unittest（45 项：配置/调度/日志/Web/QQ/OCR/窗口/截图写入）
 │   ├── test_bugfixes.py
 │   ├── test_ocr.py
 │   └── test_window_select.py
@@ -211,7 +211,17 @@ AnySender/
 ├── web/                                # Web 控制台（Flask，127.0.0.1:8765）
 │   ├── app.py                          # API + SSE 日志流
 │   ├── templates/index.html
-│   └── static/{app.js, style.css}
+│   └── static/
+│       ├── style.css
+│       └── js/                         # 原生 ES Module，无构建
+│           ├── app.js                  # 入口：事件绑定与启动
+│           ├── store.js                # 共享状态
+│           ├── util.js                 # DOM/格式化/API/toast
+│           ├── dashboard.js            # 状态统计与数据加载
+│           ├── tasks.js                # 任务卡片与执行提交
+│           ├── modal.js                # 任务表单/删除确认
+│           ├── logs.js                 # SSE 日志与过滤
+│           └── theme.js                # 深/浅主题
 │
 ├── tools/
 │   └── calibrate.py                    # 区域校准工具（HSV 色块 → 相对坐标）
@@ -622,4 +632,8 @@ QQ 9 的窗口标题恒为 `QQ`，不包含群名，该方案失效。
 - 窗口：新增 `WindowInfo` 与 `find_qq_window()`，按进程名/PID/类名/标题黑名单/标题评分定位，多候选拒绝猜测。
 - Web：`/api/status` 增加 running/next_run/discovered，新增 `/api/runs`；前端 fetch 错误 toast、试运行按钮、状态 pill 修复。
 - Web UI：按桌面预览稿重构为「顶栏统计 + 任务卡片 + 实时日志」的深/浅双主题响应式控制台（无构建、原生 JS），Playwright 2 条冒烟用例通过；UI-3 完整运行历史、UI-4 校准向导未做。
+- 前端拆分：`app.js` 666 行拆为 `js/` 下 8 个 ES Module（store/util/dashboard/tasks/modal/logs/theme/app），入口 `js/app.js`。
+- 推迟任务：改用 APScheduler `DateTrigger`（`postpone_<task>` 任务），不再用发送线程池 sleep；到点重读配置，停用/删除则跳过。
+- 校验截图：`cv2.imencode + tofile` 兼容中文路径，写盘失败不再静默，成功时删除临时图增加存在性判断。
+- 测试：45 项 unittest（新增推迟任务、截图写入中文路径）。
 - 已知限制表同步更新（移除已修项，补充双开 PID、checks 未接入等）。
