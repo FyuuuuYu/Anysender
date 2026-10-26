@@ -276,14 +276,18 @@ class QQPluginTest(unittest.TestCase):
         activate.assert_not_called()
 
     def test_text_only_does_not_require_images(self):
+        from plugins.qq import locator
+
         task = {
             "name": "t",
             "resolved_config": dict(self.cfg, group_name="测试群", message="hi"),
             "dry_run": True,
         }
         with mock.patch(
-            "plugins.qq.locator.enum_window_titles",
-            return_value=[(1, "QQ")],
+            "plugins.qq.locator.find_qq_window",
+            return_value=locator.WindowInfo(
+                1, 123, "QQ.exe", "QQ", (0, 0, 100, 100)
+            ),
         ):
             result = self.plugin.send(task)
         self.assertTrue(result.success, result.detail)
@@ -296,7 +300,8 @@ class QQPluginTest(unittest.TestCase):
             "dry_run": True,
         }
         with mock.patch(
-            "plugins.qq.locator.enum_window_titles", return_value=[]
+            "plugins.qq.locator.find_qq_window",
+            side_effect=RuntimeError("未找到 QQ 窗口（测试）"),
         ):
             result = self.plugin.send(task)
         self.assertFalse(result.success)
@@ -329,7 +334,11 @@ class QQPluginTest(unittest.TestCase):
             ),
         }
         with mock.patch.dict(sys.modules, {"pyautogui": fake}), mock.patch.object(
-            locator, "activate_qq_window", return_value=(0, 0, 1000, 1000)
+            locator,
+            "activate_qq_window",
+            return_value=locator.WindowInfo(
+                1, 123, "QQ.exe", "QQ", (0, 0, 1000, 1000)
+            ),
         ), mock.patch.object(locator, "open_group_chat"), mock.patch.object(
             locator, "get_input_target", return_value=(500, 500)
         ), mock.patch.object(

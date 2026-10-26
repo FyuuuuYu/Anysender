@@ -1,4 +1,10 @@
 qq_window_keywords: ["QQ", "Tencent QQ"]
+qq_window:
+  process_names: ["QQ.exe", "QQNT.exe"]
+  title_keywords: ["QQ", "Tencent QQ"]
+  title_exclude: ["QQ音乐", "QQ浏览器", "QQ频道", "QQ游戏", "QQ空间"]
+  pid: 0
+  class_names: []
 confidence: 0.85
 search_wait_sec: 1.2
 paste_wait_sec: 0.6

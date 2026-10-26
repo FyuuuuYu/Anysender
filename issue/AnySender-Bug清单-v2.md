@@ -43,33 +43,36 @@
 | P2-3 | ✅ 已修 | `_do_work` 把任务顶层 `group_name/message/images` 并入 `resolved_config`，Web 新任务生效 |
 | P2-4 | ✅ 已修 | 失败截图与校验临时目录统一 slugify，特殊字符任务名不再抛异常 |
 | P2-6 | ✅ 已修 | 前端统一 `api()` 检查 `r.ok` + toast，不再静默失败 |
-| P2-7 | ✅ 部分 | 新增 30 项 unittest（未装 pytest，用标准库 unittest）；覆盖配置/调度/日志/Web/QQ/OCR 关键分支 |
+| P2-7 | ✅ 部分 | 新增 41 项 unittest（未装 pytest，用标准库 unittest）；覆盖配置/调度/日志/Web/QQ/OCR/窗口选择关键分支 |
 | P2-9 | ✅ 已修 | busy 与失败区分（`skipped`）；健康仅状态跳变告警；坏 cron 单任务跳过 WARN |
+| P2-10 | ✅ 已修 | 窗口定位改为「进程名/PID → 窗口类名 → 标题黑名单 → 标题评分」；多候选且无 PID 时拒绝猜测；发送前用 hwnd 复核，不按标题重找 |
 | P3-1 | ✅ 已修 | JSONL 台账 `logs/runs.jsonl`（run_id/任务/插件/群/结果/耗时/dry_run），新增 `GET /api/runs` |
 | P1-4 | ✅ 已修 | OCR 输入统一为 ndarray/PIL→RGB；中文路径用 `np.fromfile` + `imencode().tofile`，不再依赖 `cv2.imread` |
 | P1-8 | ✅ 已修 | `ocr.get_reader()` 3 次重试 + 失败冷却 60s；发送前 OCR 预检，不可用时在动 UI 之前中止（可重试），单测覆盖 |
 | 顺带 | ✅ | `send_message(clear_input=False)` 保留已粘贴图片；`health_check` tuple/bool 不一致修正；日志时间戳改本地时区；小图自动放大后再 OCR；状态 pill 类名修复、favicon 404 不再误记为 500、任务数标签改「调度」、启用任务缺 Cron 时前端拦截 |
 
-**仍未修**：P0-3（重校准）、P1-1（热重载）、P1-3（重试策略）、P1-11（checks 接入）、P2-2/5/8/10、P3-3/4/5，以及 P1-12 的 UI-2…UI-5。
+**仍未修**：P0-3（重校准）、P1-1（热重载）、P1-3（重试策略）、P1-11（checks 接入）、P2-2/5/8、P3-3/4/5，以及 P1-12 的 UI-2…UI-5。
 
 **验证记录**
 
 ```bash
 cd E:\QQautoBot\AnySender
 python -m compileall -q core plugins web main.py        # OK
-python -m unittest discover -s tests -p "test_*.py"    # Ran 30 tests ... OK
+python -m unittest discover -s tests -p "test_*.py"    # Ran 41 tests ... OK
+python -c "from core.config_hub import ConfigHub; from plugins.qq.locator import find_qq_window; print(find_qq_window(ConfigHub().load_plugin_config('qq')))"
+# WindowInfo(hwnd=263506, pid=25372, process='QQ.exe', title='QQ', ...)  # 真机命中
 python tools/ocr_selftest.py                           # PASS（加载 3.7s，识别 0.73s，正样本 ratio=1.0，负样本 None）
 python main.py --check                                 # 发现/加载插件 ['qq']，exit 0
 ANYSENDER_DRY_RUN=1 python main.py --port 18765 --no-browser
 # POST /api/tasks/test/run?dry_run=1 -> 202，台账：
-# "[试运行] 目标群=「飞鱼的记事本」；文本=7 字；图片=2 张；模式=search；QQ 窗口='QQ'；未点击、未输入、未发送"
+# "[试运行] 目标群=「飞鱼的记事本」；文本=6 字；图片=0 张；模式=search；QQ 窗口='QQ'(pid=25372,进程=QQ.exe)；未点击、未输入、未发送"
 # curl -N /api/logs/stream -> 1s 内收到 data:；/api/runs 可回读
 # Playwright 1.64.1 + 系统 Edge（临时 .ui-smoke）
 npx @playwright/test test -c .ui-smoke/playwright.config.js    # 2 passed
 # 覆盖：状态 pill/日志加载、新建（停用）、试运行->202->台账「未点击」、编辑回填、删除、启用+空 Cron 前端拦截
 ```
 
-**残余风险**：未做真机真实发送（本次刻意只做静默测试）；OCR 首次加载约 4s，发送前预检会把这 4s 花在动 UI 之前（引擎不可用则零点击中止）；群头 13px 小字在极端缩放下仍可能误读，目前靠放大 2–3 倍 + 归一化匹配缓解；群头校验用严格模式（只接受带括号的成员数后缀，裸数字后缀如「工作群2」拒绝），OCR 丢括号时会安全失败而非误发；P0-3 坐标/模板仍未按当前 QQ 版本重校准；SSE 断线重连会重放最近 100 条（仅日志重复，不影响发送）。
+**残余风险**：未做真机真实发送（本次刻意只做静默测试）；OCR 首次加载约 4s，发送前预检会把这 4s 花在动 UI 之前（引擎不可用则零点击中止）；群头 13px 小字在极端缩放下仍可能误读，目前靠放大 2–3 倍 + 归一化匹配缓解；群头校验用严格模式（只接受带括号的成员数后缀，裸数字后缀如「工作群2」拒绝），OCR 丢括号时会安全失败而非误发；P0-3 坐标/模板仍未按当前 QQ 版本重校准；SSE 断线重连会重放最近 100 条（仅日志重复，不影响发送）；双开 QQ 且未配置 `qq_window.pid` 时，多候选会明确报错而不是猜测，配置 PID 后可精确选择。
 
 ---
 

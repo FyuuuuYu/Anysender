@@ -18,6 +18,7 @@ class QQPlugin(SenderPlugin):
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
         self._qq_rect = None
         self._log = logging.getLogger("AnySender")
+        self._last_config: dict = {}
 
     def get_name(self) -> str:
         return "qq"
@@ -50,6 +51,12 @@ class QQPlugin(SenderPlugin):
     def get_default_config(self) -> dict:
         return {
             "qq_window_keywords": ["QQ", "Tencent QQ"],
+            "qq_window": {
+                "process_names": ["QQ.exe", "QQNT.exe"],
+                "title_keywords": ["QQ", "Tencent QQ"],
+                "title_exclude": ["QQ音乐", "QQ浏览器", "QQ频道", "QQ游戏", "QQ空间"],
+                "pid": 0,
+            },
             "confidence": 0.85,
             "search_wait_sec": 1.2,
             "paste_wait_sec": 0.6,
@@ -83,6 +90,7 @@ class QQPlugin(SenderPlugin):
         }
 
     def validate_config(self, config: dict) -> Tuple[bool, str]:
+        self._last_config = config or {}
         schema = self.get_config_schema()
         if schema:
             try:
@@ -219,8 +227,10 @@ class QQPlugin(SenderPlugin):
             activate_qq_window,
             get_foreground_window_title,
             get_input_target,
+            is_foreground,
             open_group_chat,
             point_in_rect,
+            window_config,
         )
         from .sender import paste_images_to_input, send_message
         from .validator import validate_input_effect
@@ -228,7 +238,7 @@ class QQPlugin(SenderPlugin):
         import pyautogui
 
         try:
-            keywords = cfg.get("qq_window_keywords") or ["QQ", "Tencent QQ"]
+            window_cfg = window_config(cfg)
             header_cfg = (
                 cfg.get("chat_header") or cfg.get("chat_header_region") or {}
             )
@@ -252,7 +262,8 @@ class QQPlugin(SenderPlugin):
                         screenshot=False,
                     )
 
-            qq_rect = activate_qq_window(keywords)
+            target = activate_qq_window(window_cfg)
+            qq_rect = target.rect
             search_mode = str(cfg.get("search_mode", "search")).lower()
 
             def _verify() -> bool:
@@ -295,7 +306,8 @@ class QQPlugin(SenderPlugin):
                     self._log.info("[qq] 搜索结果未确认，回退联系人遍历: %s", group_name)
                     pyautogui.press("escape")
                     time.sleep(0.3)
-                    activate_qq_window(keywords)
+                    target = activate_qq_window(window_cfg)
+                    qq_rect = target.rect
                     time.sleep(0.2)
                     result = browse_to_group(group_name, contact_cfg, qq_rect)
                     if result:
@@ -317,13 +329,12 @@ class QQPlugin(SenderPlugin):
 
             # 发送前二次确认：前台窗口、点击点、群聊标题都对，才允许点下去。
             if bool(cfg.get("pre_send_check", True)):
-                fg_title = get_foreground_window_title()
-                if not any(
-                    str(k).lower() in fg_title.lower()
-                    for k in keywords
-                    if str(k).strip()
-                ):
-                    return _fail(f"发送前检查失败：前台窗口不是 QQ（{fg_title!r}）")
+                if not is_foreground(target.hwnd):
+                    fg_title = get_foreground_window_title()
+                    return _fail(
+                        "发送前检查失败：前台窗口已不是已绑定的 QQ 窗口"
+                        f"（hwnd={target.hwnd}, 当前={fg_title!r}）"
+                    )
                 if not point_in_rect(input_xy[0], input_xy[1], qq_rect):
                     return _fail(
                         f"发送前检查失败：输入点 {input_xy} 不在 QQ 窗口内"
@@ -361,23 +372,21 @@ class QQPlugin(SenderPlugin):
         message: str,
         abs_images: List[str],
     ) -> SendResult:
-        from .locator import enum_window_titles
+        from .locator import find_qq_window
 
         name = task.get("name", "unnamed")
-        keywords = cfg.get("qq_window_keywords") or ["QQ", "Tencent QQ"]
-        titles = [title for _, title in enum_window_titles()]
-        matched = [
-            title
-            for title in titles
-            if any(str(k).lower() in title.lower() for k in keywords if str(k).strip())
-        ]
         mode = str(cfg.get("search_mode", "search"))
-        if not matched:
+        try:
+            target = find_qq_window(cfg)
+        except Exception as exc:
             return SendResult(
                 success=False,
                 task_name=name,
                 plugin_name=self.get_name(),
-                detail="[试运行] 未找到 QQ 窗口；未点击、未输入、未发送",
+                detail=(
+                    f"[试运行] 未找到 QQ 窗口：{exc}；"
+                    "未点击、未输入、未发送"
+                ),
                 retryable=False,
             )
         return SendResult(
@@ -387,18 +396,20 @@ class QQPlugin(SenderPlugin):
             detail=(
                 f"[试运行] 目标群=「{group_name}」；文本={len(message)} 字；"
                 f"图片={len(abs_images)} 张；模式={mode}；"
-                f"QQ 窗口={matched[0]!r}；未点击、未输入、未发送"
+                f"QQ 窗口={target.title!r}"
+                f"(pid={target.pid},进程={target.process or '?'})；"
+                "未点击、未输入、未发送"
             ),
         )
 
     def health_check(self) -> Tuple[bool, str]:
-        from .locator import enum_window_titles
+        from .locator import find_qq_window
 
-        for _, title in enum_window_titles():
-            low = title.strip().lower()
-            if low in ("qq", "tencent qq") or low.startswith("qq -"):
-                return True, "QQ 窗口在线"
-        return False, "未检测到 QQ 窗口"
+        try:
+            target = find_qq_window(self._last_config or {})
+            return True, f"QQ 窗口在线（pid={target.pid}, {target.process or '?'}）"
+        except Exception as exc:
+            return False, str(exc)
 
 
 def _capture_failure_screenshot(task_name: str, error: str) -> None:

@@ -504,6 +504,20 @@ python tools/calibrate.py 标注图.png --plugin qq
 
 ---
 
+## QQ 窗口定位
+
+发送前先解析目标窗口，不再「标题含 QQ 就抢前台」：
+
+1. `qq_window.process_names`（默认 `QQ.exe` / `QQNT.exe`）过滤进程镜像名；`pid` 非 0 时再按 PID 过滤（双开时指定实例）。
+2. `title_exclude` 剔除 QQ音乐/浏览器/频道等伪窗口；`class_names` 可选，不默认启用。
+3. 标题评分：完全相等 > 前缀 > 包含；同档多个候选且未配 PID 时**报错拒绝猜测**，而不是随便挑一个。
+4. `activate_qq_window()` 后确认 `GetForegroundWindow() == hwnd`；发送前用同一 hwnd 复核仍在前台，不按标题重找。
+5. dry-run 与健康检查共用 `find_qq_window(config)`，失败信息会列出候选窗口与过滤条件。
+
+配置示例见 `presets/plugins/qq.yaml` 的 `qq_window` 段。
+
+---
+
 ## 搜索模式
 
 QQ 插件支持两种寻找群聊的方式，通过 `config/plugins/qq.yaml` 中的 `search_mode` 切换：
@@ -526,7 +540,16 @@ Ctrl+F → 点击搜索框 → pyperclip 粘贴群名 → Enter
 ### 群名校验
 
 当前生效的是 `browser.verify_chat_opened()`：对聊天标题区截图 OCR，
-再用 `difflib.SequenceMatcher` 与目标群名比对（默认阈值 0.5）。
+再用 `difflib.SequenceMatcher` 与目标群名比对。
+
+群头校验走**严格模式**（`_confident_match`）：
+
+- 归一化后完全相等 → 通过；
+- OCR 文本是「目标群名 + 括号成员数」（如 `飞鱼的记事本（12）`）→ 通过；
+- 否则要求 `SequenceMatcher >= 0.9` 且长度差 ≤ 2；
+- 裸数字后缀（如 `工作群2`）不视为成员数，直接拒绝——宁可安全失败，也不发错群。
+
+搜索结果下拉的候选匹配仍用宽松阈值（默认 0.5），只用于「点开哪个候选」，点开后必须再过群头严格校验。
 
 `locator.verify_group_chat_opened()` 是早期基于**窗口标题**的实现，**已不再被调用**——
 QQ 9 的窗口标题恒为 `QQ`，不包含群名，该方案失效。
@@ -554,14 +577,14 @@ QQ 9 的窗口标题恒为 `QQ`，不包含群名，该方案失效。
 
 | # | 限制 | 说明 |
 |---|---|---|
-| 1 | Web 控制台「立即执行」不可用 | `web/app.py` 调用不存在的 `Scheduler._execute_task()`，会 500 |
-| 2 | 配置热重载未接通 | `config_changed` 事件无订阅者 |
-| 3 | 纯文本任务不可发 | `images` 为空直接判失败 |
-| 4 | `retryable` 无消费者 | 失败任务不会自动重试 |
-| 5 | 必须独占键鼠 | 发送期间前台焦点被抢，用户不能操作电脑 |
-| 6 | 相对路径依赖工作目录 | 需在项目根目录启动，否则读不到 config/presets |
-| 7 | 插件校验失败仍驻留 | `plugin_manager.load()` 先注册后校验 |
-| 8 | easyocr DLL 偶发失败 | torch c10.dll 可能抛 WinError 1114，重试可恢复 |
+| 1 | 必须独占键鼠 | 发送期间前台焦点被抢，用户不能操作电脑 |
+| 2 | 配置热重载未接通 | `config_changed` 事件无订阅者，改配置需重启（或 Web 增删任务时会重载调度） |
+| 3 | `retryable` 无消费者 | 失败任务不会自动重试，只记录在台账/事件里 |
+| 4 | 群头 OCR 会安全失败 | 群名小字、缩放、OCR 丢括号时拒绝发送；先保证不发错，再谈成功率 |
+| 5 | 双开 QQ 需显式 PID | 未配 `qq_window.pid` 且多个候选时明确报错，不猜测 |
+| 6 | Web 无鉴权 | 只绑 `127.0.0.1`；不要改成 `0.0.0.0` 暴露到局域网 |
+| 7 | checks 未接入调度 | `core/check_loader.py` 与 `checks/` 仍无调用方 |
+| 8 | 首次 OCR 加载约 4s | 发送前预检会先等引擎就绪；引擎不可用则零点击中止 |
 
 ---
 
@@ -588,3 +611,13 @@ QQ 9 的窗口标题恒为 `QQ`，不包含群名，该方案失效。
 | 通知交互 | 文末重复了一整节 | 已合并为一节 |
 | 校准色相 | 紫 140°-165° | 实际 130°-170° |
 | 全文 | 无「已知限制」章 | 新增，汇总 8 条 |
+
+**2026-10-26 修订**（第 1 批修复 + OCR + 窗口定位）：
+
+- 执行链路：`Scheduler.run_now()`、插件按 discovered 全量加载、JSONL 台账 `logs/runs.jsonl`、纯文本发送、dry-run。
+- 日志：`RingHandler` 唯一 ring（带 seq），SSE 先补最近 100 条；日志时间戳改本地时区。
+- 校验：模板缺失自动关闭校验并 WARN；群头 OCR 改严格匹配；输入区按相对宽高取中心。
+- OCR：新增 `plugins/qq/ocr.py`（3 次重试 + 60s 冷却 + 自适应放大 + 中文路径安全读写），发送前 OCR 预检。
+- 窗口：新增 `WindowInfo` 与 `find_qq_window()`，按进程名/PID/类名/标题黑名单/标题评分定位，多候选拒绝猜测。
+- Web：`/api/status` 增加 running/next_run/discovered，新增 `/api/runs`；前端 fetch 错误 toast、试运行按钮、状态 pill 修复。
+- 已知限制表同步更新（移除已修项，补充双开 PID、checks 未接入等）。
