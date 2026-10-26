@@ -14,8 +14,18 @@
       <span class="logo-dot"></span>
       <h1>AnySender</h1>
     </div>
-    <div class="status-pill" id="statusPill">
-      <span class="dot"></span> 运行中 · <span id="jobCount">0</span> 个任务
+    <div class="topbar-status">
+      <div class="status-pill pill-ok" id="statusPill">
+        <span class="dot"></span>
+        <span id="statusText">运行中</span>
+        <span class="sep">·</span>
+        <span id="jobCount">0</span> 调度
+        <span class="sep">·</span>
+        <span id="runningCount">0</span> 运行中
+        <span class="sep">·</span>
+        <span id="pluginCount">0</span> 插件
+      </div>
+      <div class="next-run">下次：<span id="nextRun">—</span></div>
     </div>
   </header>
 
@@ -64,12 +74,13 @@
       <label>Cron 表达式（秒 分 时 日 月 周）
         <input type="text" id="f_schedule" placeholder="0 30 8 * * *">
       </label>
-      <label>消息内容
-        <input type="text" id="f_message" placeholder="发送的文本">
+      <label>消息内容（纯文本）
+        <input type="text" id="f_message" placeholder="发送的文本，可与图片二选一">
       </label>
-      <label>图片路径（每行一个）
+      <label>图片路径（每行一个，可留空）
         <textarea id="f_images" rows="3" placeholder="E:/images/a.png"></textarea>
       </label>
+      <p class="form-hint">消息与图片至少填一项；不填图片即纯文本发送。</p>
       <div class="switch-row">
         <label class="switch-label">启用
           <input type="checkbox" id="f_enabled" checked>
@@ -84,6 +95,7 @@
   </div>
 </div>
 
+<div class="toasts" id="toasts"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

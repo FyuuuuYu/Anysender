@@ -4,6 +4,11 @@ search_wait_sec: 1.2
 paste_wait_sec: 0.6
 send_mode: "enter"
 text_interval_sec: 0.02
+search_mode: "search"
+require_chat_verify: true
+pre_send_check: true
+ocr_precheck: true
+dry_run: false
 
 input_target:
   mode: "relative"

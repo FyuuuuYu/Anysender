@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, Tuple
 
@@ -6,6 +7,14 @@ import cv2
 import numpy as np
 import pyautogui
 from skimage.metrics import structural_similarity as ssim
+
+_BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _slug(name: str, max_len: int = 60) -> str:
+    """任务名用于目录/文件名时做安全化，避免中文标点与非法字符。"""
+    value = _BAD_CHARS.sub("_", str(name or "unnamed")).strip(" .")
+    return (value or "unnamed")[:max_len]
 
 
 def _imread_unicode(path: str):
@@ -60,7 +69,7 @@ def hdr_robust_similarity(img_a_bgr: np.ndarray,
 def validate_input_effect(task: dict, cfg: dict, qq_rect: tuple,
                           base_dir: str) -> Tuple[bool, str]:
     val_cfg = cfg.get("validation", {})
-    task_name = task.get("name", "unnamed")
+    task_name = _slug(task.get("name", "unnamed"))
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     from .locator import get_validation_region

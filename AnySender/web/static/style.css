@@ -48,6 +48,22 @@ body {
   box-shadow: 0 0 8px var(--success);
   animation: pulse 2s infinite;
 }
+.status-pill .sep { opacity: .45; }
+.status-pill.pill-ok { color: var(--success); border-color: rgba(34,197,94,.4); }
+.status-pill.pill-warn { color: var(--warn); border-color: rgba(245,158,11,.45); }
+.status-pill.pill-warn .dot {
+  background: var(--warn); box-shadow: 0 0 8px var(--warn);
+}
+.status-pill.pill-error { color: var(--danger); border-color: rgba(239,68,68,.5); }
+.status-pill.pill-error .dot {
+  background: var(--danger); box-shadow: 0 0 8px var(--danger);
+  animation: none;
+}
+.topbar-status {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; justify-content: flex-end;
+}
+.next-run { font-size: 12px; color: var(--text-dim); }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 /* ── 布局 ── */
@@ -183,4 +199,37 @@ body {
 .switch-label input:checked + .switch::after { left: 23px; }
 .modal-foot {
   display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;
+}
+
+/* ── 试运行 / 提示 ── */
+.btn-warn { background: var(--warn); color: #0b1220; font-weight: 600; }
+.btn-warn:hover { filter: brightness(1.12); }
+.pill-ok .dot { background: var(--success); }
+.tag-warn { color: var(--warn); border-color: rgba(245,158,11,.55); }
+.form-hint {
+  font-size: 12px; color: var(--text-dim);
+  margin: -2px 0 10px; line-height: 1.5;
+}
+
+/* ── Toast ── */
+.toasts {
+  position: fixed; right: 20px; bottom: 20px; z-index: 300;
+  display: flex; flex-direction: column; gap: 10px;
+  max-width: min(380px, 90vw);
+}
+.toast {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-left: 3px solid var(--primary);
+  border-radius: 10px; padding: 10px 14px;
+  font-size: 13px; line-height: 1.5;
+  box-shadow: 0 8px 26px rgba(0,0,0,.35);
+  animation: toast-in .18s ease-out;
+  word-break: break-word;
+}
+.toast-ok { border-left-color: var(--success); }
+.toast-error { border-left-color: var(--danger); }
+.toast-warn { border-left-color: var(--warn); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }

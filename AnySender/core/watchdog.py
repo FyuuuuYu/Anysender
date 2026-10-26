@@ -16,9 +16,10 @@ class Watchdog:
     ):
         self._event_bus = event_bus
         self._plugin_manager = plugin_manager
-        self._config_dir = config_dir
+        self._config_dir = os.path.abspath(config_dir)
         self._config_mtimes: dict = {}
         self._health_interval = 30
+        self._health_state: dict = {}
         self._shutdown_flag = threading.Event()
         self._watcher_thread: Optional[threading.Thread] = None
         self._health_thread: Optional[threading.Thread] = None
@@ -61,17 +62,29 @@ class Watchdog:
         self._reload_timer.start()
 
     def _trigger_reload(self):
+        # 注意：目前没有订阅方，热重载是后续批次的工作（见 Bug 清单 P1-1）。
         self._event_bus.emit("config_changed")
 
     def _health_loop(self):
         while not self._shutdown_flag.wait(timeout=self._health_interval):
             results = self._plugin_manager.health_check_all()
             for name, (ok, detail) in results.items():
-                if not ok:
-                    self._event_bus.emit("plugin_health_issue", plugin_name=name, detail=detail)
+                previous = self._health_state.get(name)
+                self._health_state[name] = ok
+                # 只在状态翻转时发事件，避免每 30s 刷一条健康异常
+                if not ok and previous is not False:
+                    self._event_bus.emit(
+                        "plugin_health_issue", plugin_name=name, detail=detail
+                    )
+                elif ok and previous is False:
+                    self._event_bus.emit(
+                        "plugin_health_restored",
+                        plugin_name=name,
+                        detail="健康检查已恢复",
+                    )
 
     def start(self, health_interval: int = 30) -> None:
-        self._health_interval = health_interval
+        self._health_interval = max(5, int(health_interval))
         self._watcher_thread = threading.Thread(target=self._watcher_loop, daemon=True)
         self._health_thread = threading.Thread(target=self._health_loop, daemon=True)
         self._watcher_thread.start()

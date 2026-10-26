@@ -1,8 +1,9 @@
 # AnySender Bug 清单 v2（归档版）
 
-> 目标：`E:\QQautoBot\AnySender` ｜ 代码版本：`90c4479` ｜ 日期：2026-10-26
+> 目标：`E:\QQautoBot\AnySender` ｜ 基线代码版本：`90c4479` ｜ 日期：2026-10-26
 > 来源：`AnySender-Bug分级.md`（v1，23 项）+ `AnySender-补充审查意见与归档草案.md`（N1–N6、D1–D5）
-> 状态：**全部 open**（截至 `90c4479`，无任何修复提交）
+> 状态：**第 1 批已修复（工作区未提交）**；P0-3 校准及其余批次仍 open
+> 验证：`tests/` 30 项 unittest 全绿；`tools/ocr_selftest.py` PASS；`python main.py --check` exit 0；真机 dry-run 已跑通且未发送
 > 说明：本文件是合并后的**唯一施工清单**；v1 保留为历史记录，不再更新。
 
 ## 分级标准
@@ -23,6 +24,52 @@
 | P2 | 9 | -1（P2-1 升 P1-11）+3（N4–N6） |
 | P3 | 4 | -1（dry-run 升 P1-10） |
 | **合计** | **30** | 旧 23 + 新增 7 个编号 |
+
+## 修复状态（2026-10-26，工作区）
+
+| 项 | 状态 | 验证 / 说明 |
+|---|---|---|
+| P0-1 | ✅ 已修 | `Scheduler.run_now()` 异步提交，插件按 discovered 全量加载；Web 执行返回 202 + run_id |
+| P0-2 | ✅ 已修 | 纯文本任务实跑：`images=[]`、`message` 非空，dry-run 台账 `文本=5 字 / 图片=0 张` |
+| P0-4 | ✅ 已修 | `RingHandler` 唯一 deque（带 seq）；SSE 先补最近 100 条再增量，1s 内收到 `data:` |
+| P0-5 | ✅ 已修 | search/browse 每次「点击打开会话」后强制 `verify_chat_opened`，失败即停；单测覆盖「群头 OCR 失败→零点击」 |
+| P1-2 | ✅ 已修 | 先 `validate_config` 再注册；单测确认非法配置不会留下幽灵插件 |
+| P1-5 | ✅ 已修 | ConfigHub / PluginManager / Logger / 台账 / main 全部基于项目根绝对路径 |
+| P1-6 | ✅ 已修 | 校验模板缺失时自动 `validation.enabled=false` + WARN，不再拒载；单测覆盖 |
+| P1-7 | ✅ 已修 | 预通知改用 `ZoneInfo(config 时区)`，不再 `datetime.now(tz.utc)` 混用 |
+| P1-9 | ✅ 已修 | 发送前检查：前台窗口含 QQ 关键词、输入点落在窗口内、群头 OCR 通过 |
+| P1-10 | ⚠️ 简化 | dry-run 只枚举窗口并报告，不点击、不输入、不发送；未做「填入输入框 + 截图对比」 |
+| P1-12 | ⚠️ 部分 | UI-1 完成：fetch 错误 toast、状态/调度/运行数/插件数/下次运行、试运行按钮、Cron 前端校验；UI-2…UI-5 open |
+| P2-3 | ✅ 已修 | `_do_work` 把任务顶层 `group_name/message/images` 并入 `resolved_config`，Web 新任务生效 |
+| P2-4 | ✅ 已修 | 失败截图与校验临时目录统一 slugify，特殊字符任务名不再抛异常 |
+| P2-6 | ✅ 已修 | 前端统一 `api()` 检查 `r.ok` + toast，不再静默失败 |
+| P2-7 | ✅ 部分 | 新增 30 项 unittest（未装 pytest，用标准库 unittest）；覆盖配置/调度/日志/Web/QQ/OCR 关键分支 |
+| P2-9 | ✅ 已修 | busy 与失败区分（`skipped`）；健康仅状态跳变告警；坏 cron 单任务跳过 WARN |
+| P3-1 | ✅ 已修 | JSONL 台账 `logs/runs.jsonl`（run_id/任务/插件/群/结果/耗时/dry_run），新增 `GET /api/runs` |
+| P1-4 | ✅ 已修 | OCR 输入统一为 ndarray/PIL→RGB；中文路径用 `np.fromfile` + `imencode().tofile`，不再依赖 `cv2.imread` |
+| P1-8 | ✅ 已修 | `ocr.get_reader()` 3 次重试 + 失败冷却 60s；发送前 OCR 预检，不可用时在动 UI 之前中止（可重试），单测覆盖 |
+| 顺带 | ✅ | `send_message(clear_input=False)` 保留已粘贴图片；`health_check` tuple/bool 不一致修正；日志时间戳改本地时区；小图自动放大后再 OCR；状态 pill 类名修复、favicon 404 不再误记为 500、任务数标签改「调度」、启用任务缺 Cron 时前端拦截 |
+
+**仍未修**：P0-3（重校准）、P1-1（热重载）、P1-3（重试策略）、P1-11（checks 接入）、P2-2/5/8/10、P3-3/4/5，以及 P1-12 的 UI-2…UI-5。
+
+**验证记录**
+
+```bash
+cd E:\QQautoBot\AnySender
+python -m compileall -q core plugins web main.py        # OK
+python -m unittest discover -s tests -p "test_*.py"    # Ran 30 tests ... OK
+python tools/ocr_selftest.py                           # PASS（加载 3.7s，识别 0.73s，正样本 ratio=1.0，负样本 None）
+python main.py --check                                 # 发现/加载插件 ['qq']，exit 0
+ANYSENDER_DRY_RUN=1 python main.py --port 18765 --no-browser
+# POST /api/tasks/test/run?dry_run=1 -> 202，台账：
+# "[试运行] 目标群=「飞鱼的记事本」；文本=7 字；图片=2 张；模式=search；QQ 窗口='QQ'；未点击、未输入、未发送"
+# curl -N /api/logs/stream -> 1s 内收到 data:；/api/runs 可回读
+# Playwright 1.64.1 + 系统 Edge（临时 .ui-smoke）
+npx @playwright/test test -c .ui-smoke/playwright.config.js    # 2 passed
+# 覆盖：状态 pill/日志加载、新建（停用）、试运行->202->台账「未点击」、编辑回填、删除、启用+空 Cron 前端拦截
+```
+
+**残余风险**：未做真机真实发送（本次刻意只做静默测试）；OCR 首次加载约 4s，发送前预检会把这 4s 花在动 UI 之前（引擎不可用则零点击中止）；群头 13px 小字在极端缩放下仍可能误读，目前靠放大 2–3 倍 + 归一化匹配缓解；群头校验用严格模式（只接受带括号的成员数后缀，裸数字后缀如「工作群2」拒绝），OCR 丢括号时会安全失败而非误发；P0-3 坐标/模板仍未按当前 QQ 版本重校准；SSE 断线重连会重放最近 100 条（仅日志重复，不影响发送）。
 
 ---
 

@@ -1,9 +1,15 @@
-import os
 import json
+import logging
+import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 from core.plugin_interface import SenderPlugin, SendResult
+
+_PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
 
 
 class QQPlugin(SenderPlugin):
@@ -11,15 +17,16 @@ class QQPlugin(SenderPlugin):
         super().__init__()
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
         self._qq_rect = None
+        self._log = logging.getLogger("AnySender")
 
     def get_name(self) -> str:
         return "qq"
 
     def get_version(self) -> str:
-        return "2.0.0"
+        return "2.1.0"
 
-    def get_performance_profile(self) -> str:
-        return "accurate"
+    def get_performance_profile(self) -> Dict:
+        return {"cpu": "low", "io": "medium", "needs_desktop": True}
 
     def get_config_schema(self) -> dict:
         """
@@ -28,10 +35,11 @@ class QQPlugin(SenderPlugin):
           2. <project>/schemas/default/qq.json      — 内置默认 schema
           3. 返回 {}，跳过 Schema 校验，仅用 validate_config()
         """
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         search_paths = [
-            os.path.join(project_root, "schemas", f"{self.get_name()}.json"),
-            os.path.join(project_root, "schemas", "default", f"{self.get_name()}.json"),
+            os.path.join(_PROJECT_ROOT, "schemas", f"{self.get_name()}.json"),
+            os.path.join(
+                _PROJECT_ROOT, "schemas", "default", f"{self.get_name()}.json"
+            ),
         ]
         for path in search_paths:
             if os.path.isfile(path):
@@ -48,6 +56,10 @@ class QQPlugin(SenderPlugin):
             "send_mode": "enter",
             "text_interval_sec": 0.02,
             "search_mode": "search",
+            "require_chat_verify": True,
+            "pre_send_check": True,
+            "ocr_precheck": True,
+            "dry_run": False,
             "input_target": {
                 "mode": "relative",
                 "template_path": "",
@@ -56,6 +68,7 @@ class QQPlugin(SenderPlugin):
             },
             "validation": {
                 "enabled": True,
+                "template_path": "",
                 "min_similarity": 0.82,
                 "luma_weight": 0.65,
                 "edge_weight": 0.25,
@@ -70,14 +83,15 @@ class QQPlugin(SenderPlugin):
         }
 
     def validate_config(self, config: dict) -> Tuple[bool, str]:
-        import re
-
         schema = self.get_config_schema()
         if schema:
             try:
                 from jsonschema import Draft202012Validator
+
                 validator = Draft202012Validator(schema)
-                errors = sorted(validator.iter_errors(config), key=lambda e: list(e.path))
+                errors = sorted(
+                    validator.iter_errors(config), key=lambda e: list(e.path)
+                )
                 if errors:
                     msgs = []
                     for e in errors:
@@ -93,141 +107,314 @@ class QQPlugin(SenderPlugin):
             if not os.path.isfile(tpl):
                 return False, f"input_target template_path 不存在: {tpl}"
 
+        # 群聊校验：没有校准 chat_header 时，宁可不发，也不冒险发错群。
+        header = config.get("chat_header") or config.get("chat_header_region")
+        if bool(config.get("require_chat_verify", True)) and not header:
+            return (
+                False,
+                "未配置 chat_header，无法确认目标群聊；请先校准，"
+                "或在 plugins/qq.yaml 设置 require_chat_verify: false",
+            )
+
+        search_mode = str(config.get("search_mode", "search")).lower()
+        if search_mode not in ("search", "browse"):
+            return False, f"未知 search_mode: {search_mode}"
+        if search_mode == "browse" and not (
+            config.get("contact_list") or config.get("contact_list_region")
+        ):
+            return False, "browse 模式需要先校准 contact_list 区域"
+
         val = config.get("validation", {})
-        if val.get("enabled"):
+        if val.get("enabled", True):
             vt = val.get("template_path", "")
             if not os.path.isfile(vt):
-                return False, f"validation template_path 不存在: {vt}"
-            wsum = (
-                float(val.get("luma_weight", 0))
-                + float(val.get("edge_weight", 0))
-                + float(val.get("hist_weight", 0))
-            )
-            if abs(wsum - 1.0) > 1e-6:
-                return False, "validation 权重之和必须等于 1.0"
+                # 降级而不是阻断：模板缺失时关闭校验并显式告警。
+                val["enabled"] = False
+                val["disabled_reason"] = f"validation template 不存在: {vt}"
+                config["validation"] = val
+                self._log.warning(
+                    "[qq] validation 模板不存在，已自动关闭输入校验: %s", vt
+                )
+            else:
+                wsum = (
+                    float(val.get("luma_weight", 0))
+                    + float(val.get("edge_weight", 0))
+                    + float(val.get("hist_weight", 0))
+                )
+                if abs(wsum - 1.0) > 1e-6:
+                    return False, "validation 权重之和必须等于 1.0"
 
         return True, "ok"
 
     def on_load(self) -> None:
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        for sub in ["screenshots/temp", "screenshots/failed"]:
-            os.makedirs(os.path.join(base, sub), exist_ok=True)
+        for sub in [
+            "screenshots/temp",
+            "screenshots/failed",
+            "screenshots/done",
+        ]:
+            os.makedirs(os.path.join(_PROJECT_ROOT, sub), exist_ok=True)
+        super().on_load()
 
     def warm_up(self) -> None:
-        from .locator import activate_qq_window
-        keywords = (self.get_default_config().get("qq_window_keywords", ["QQ"]))
-        activate_qq_window(keywords)
+        # 不在启动时抢焦点，也不提前加载 OCR（easyocr 首次加载很重）。
+        return None
+
+    def _is_dry_run(self, task: dict, cfg: dict) -> bool:
+        env = os.environ.get("ANYSENDER_DRY_RUN", "").lower()
+        return bool(task.get("dry_run")) or bool(cfg.get("dry_run")) or env in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
 
     def send(self, task: dict) -> SendResult:
-        from .locator import activate_qq_window, open_group_chat, get_input_target
-        from .browser import browse_to_group, select_search_result, verify_chat_opened
-        from .sender import paste_images_to_input, send_message
-        from .validator import validate_input_effect
-        import pyautogui
-
         name = task.get("name", "unnamed")
-        cfg = task.get("resolved_config", {})
-        group_name = task.get("plugin_config", {}).get("group_name", "").strip()
-        message = task.get("plugin_config", {}).get("message", "")
-        images = task.get("plugin_config", {}).get("images", [])
+        cfg = task.get("resolved_config") or {}
+        group_name = str(cfg.get("group_name") or "").strip()
+        message = str(cfg.get("message") or "")
+        raw_images = cfg.get("images") or []
+        if isinstance(raw_images, str):
+            raw_images = [raw_images]
+        images = [str(p).strip() for p in raw_images if str(p).strip()]
 
-        def _fail(detail: str, retryable: bool = True) -> SendResult:
-            _capture_failure_screenshot(name, detail)
-            return SendResult(False, name, detail=detail, retryable=retryable)
+        def _fail(detail: str, retryable: bool = True, screenshot: bool = True):
+            if screenshot:
+                _capture_failure_screenshot(name, detail)
+            return SendResult(
+                success=False,
+                task_name=name,
+                plugin_name=self.get_name(),
+                detail=detail,
+                retryable=retryable,
+            )
 
         if not group_name:
-            return _fail("group_name 为空", False)
-        if not images:
-            return _fail("images 为空", False)
+            return _fail("group_name 为空", retryable=False, screenshot=False)
+        if not message.strip() and not images:
+            return _fail(
+                "message 与 images 均为空，至少填写一项",
+                retryable=False,
+                screenshot=False,
+            )
+
+        abs_images: List[str] = []
+        missing: List[str] = []
+        for raw in images:
+            path = os.path.abspath(os.path.expanduser(raw))
+            if os.path.isfile(path):
+                abs_images.append(path)
+            else:
+                missing.append(path)
+        if missing:
+            return _fail(
+                "图片不存在: " + "; ".join(missing[:3]), retryable=False, screenshot=False
+            )
+
+        if self._is_dry_run(task, cfg):
+            return self._dry_run(task, cfg, group_name, message, abs_images)
+
+        from .browser import browse_to_group, select_search_result, verify_chat_opened
+        from .locator import (
+            activate_qq_window,
+            get_foreground_window_title,
+            get_input_target,
+            open_group_chat,
+            point_in_rect,
+        )
+        from .sender import paste_images_to_input, send_message
+        from .validator import validate_input_effect
+
+        import pyautogui
 
         try:
-            keywords = cfg.get("qq_window_keywords", ["QQ"])
-            qq_rect = activate_qq_window(keywords)
-            search_mode = cfg.get("search_mode", "search")
-            chat_header_cfg = cfg.get("chat_header") or cfg.get("chat_header_region", {})
+            keywords = cfg.get("qq_window_keywords") or ["QQ", "Tencent QQ"]
+            header_cfg = (
+                cfg.get("chat_header") or cfg.get("chat_header_region") or {}
+            )
+            search_cfg = cfg.get("search_box_target") or cfg.get("search_box") or {}
+            contact_cfg = (
+                cfg.get("contact_list") or cfg.get("contact_list_region") or {}
+            )
+            wait_sec = float(cfg.get("search_wait_sec", 1.2))
+            require_verify = bool(cfg.get("require_chat_verify", True))
 
+            # OCR 预检：引擎不可用时在动 UI 之前就停下，避免「点了一圈却无法校验」。
+            if require_verify and bool(cfg.get("ocr_precheck", True)):
+                from . import ocr
+
+                try:
+                    ocr.get_reader()
+                except ocr.OCRUnavailable as exc:
+                    return _fail(
+                        f"OCR 引擎不可用，已中止发送（避免盲发）: {exc}",
+                        retryable=True,
+                        screenshot=False,
+                    )
+
+            qq_rect = activate_qq_window(keywords)
+            search_mode = str(cfg.get("search_mode", "search")).lower()
+
+            def _verify() -> bool:
+                if not header_cfg:
+                    return False
+                try:
+                    return bool(verify_chat_opened(group_name, header_cfg, qq_rect))
+                except Exception as exc:
+                    self._log.warning("[qq] 群聊标题 OCR 校验异常: %s", exc)
+                    return False
+
+            verified = False
             if search_mode == "browse":
-                contact_cfg = cfg.get("contact_list") or cfg.get("contact_list_region", {})
                 if not contact_cfg:
-                    return _fail("browse 模式需要先校准 contact_list 区域")
+                    return _fail("browse 模式需要先校准 contact_list 区域", screenshot=False)
                 result = browse_to_group(group_name, contact_cfg, qq_rect)
                 if result is None:
-                    return _fail(f"列表遍历失败：未找到「{group_name}」", retryable=True)
+                    return _fail(f"列表遍历失败：未找到「{group_name}」")
                 pyautogui.click(result[0], result[1])
-                time.sleep(float(cfg.get("search_wait_sec", 2.0)))
+                time.sleep(wait_sec)
+                verified = _verify()
+                if not verified and require_verify:
+                    return _fail(
+                        f"点击联系人后未能确认进入「{group_name}」，已中止发送"
+                    )
             else:
-                open_group_chat(group_name, float(cfg.get("search_wait_sec", 1.2)), cfg, qq_rect)
-                time.sleep(0.5)
+                open_group_chat(group_name, wait_sec, cfg, qq_rect)
+                time.sleep(0.4)
+                verified = _verify()
 
-                if chat_header_cfg and verify_chat_opened(group_name, chat_header_cfg, qq_rect):
-                    pass  # 搜索直接成功
-                else:
-                    search_cfg = cfg.get("search_box_target") or cfg.get("search_box", {})
+                if not verified and search_cfg:
                     sr = select_search_result(group_name, search_cfg, qq_rect)
                     if sr:
-                        import logging
-                        logging.getLogger("AnySender").info(f"OCR 搜索结果: {group_name}")
+                        self._log.info("[qq] 点击搜索结果: %s", group_name)
                         pyautogui.click(sr[0], sr[1])
                         time.sleep(0.5)
+                        verified = _verify()
 
-                    if not (chat_header_cfg and verify_chat_opened(group_name, chat_header_cfg, qq_rect)):
-                        contact_cfg = cfg.get("contact_list") or cfg.get("contact_list_region", {})
-                        if contact_cfg:
-                            import logging
-                            logging.getLogger("AnySender").info(f"回退遍历: {group_name}")
-                            pyautogui.press("escape")
-                            time.sleep(0.3)
-                            activate_qq_window(keywords)
-                            time.sleep(0.2)
-                            result = browse_to_group(group_name, contact_cfg, qq_rect)
-                            if result is None:
-                                return _fail(f"遍历失败: {group_name}", retryable=True)
-                            pyautogui.click(result[0], result[1])
-                            time.sleep(float(cfg.get("search_wait_sec", 2.0)))
-                        else:
-                            return _fail(f"未能进入群聊「{group_name}」\n请校准 chat_header 或 contact_list")
+                if not verified and contact_cfg:
+                    self._log.info("[qq] 搜索结果未确认，回退联系人遍历: %s", group_name)
+                    pyautogui.press("escape")
+                    time.sleep(0.3)
+                    activate_qq_window(keywords)
+                    time.sleep(0.2)
+                    result = browse_to_group(group_name, contact_cfg, qq_rect)
+                    if result:
+                        pyautogui.click(result[0], result[1])
+                        time.sleep(wait_sec)
+                        verified = _verify()
+
+                if not verified:
+                    if require_verify:
+                        return _fail(
+                            f"未能确认进入群聊「{group_name}」，已中止发送。"
+                            "请校准 chat_header，或确认群名完全一致"
+                        )
+                    self._log.warning(
+                        "[qq] 未确认群聊标题但 require_chat_verify=false，继续发送"
+                    )
+
             input_xy = get_input_target(qq_rect, cfg)
 
-            abs_images = [os.path.abspath(p) for p in images]
-            paste_images_to_input(abs_images, input_xy, cfg)
-            send_message(message, input_xy, cfg)
+            # 发送前二次确认：前台窗口、点击点、群聊标题都对，才允许点下去。
+            if bool(cfg.get("pre_send_check", True)):
+                fg_title = get_foreground_window_title()
+                if not any(
+                    str(k).lower() in fg_title.lower()
+                    for k in keywords
+                    if str(k).strip()
+                ):
+                    return _fail(f"发送前检查失败：前台窗口不是 QQ（{fg_title!r}）")
+                if not point_in_rect(input_xy[0], input_xy[1], qq_rect):
+                    return _fail(
+                        f"发送前检查失败：输入点 {input_xy} 不在 QQ 窗口内"
+                    )
+                if header_cfg and require_verify and not _verify():
+                    return _fail("发送前复核失败：群聊标题已变化，已中止发送")
 
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            ok, detail = validate_input_effect(task, cfg, qq_rect, base_dir)
+            if abs_images:
+                paste_images_to_input(abs_images, input_xy, cfg)
+            # 有图片时不能再 ctrl+a/backspace，否则会把刚粘贴的图片清空
+            send_message(message, input_xy, cfg, clear_input=not abs_images)
+
+            ok, detail = validate_input_effect(task, cfg, qq_rect, _PROJECT_ROOT)
             if not ok:
-                return _fail(f"校验失败: {detail}")
+                return _fail(f"发送后校验失败: {detail}")
 
-            return SendResult(True, name, detail=f"已发送 {len(abs_images)} 张图片到 {group_name}")
-        except Exception as e:
-            return _fail(str(e))
+            kind = f"{len(abs_images)} 张图片" if abs_images else "纯文本"
+            if abs_images and message.strip():
+                kind += " + 文本"
+            return SendResult(
+                success=True,
+                task_name=name,
+                plugin_name=self.get_name(),
+                detail=f"已发送{kind}到「{group_name}」",
+            )
+        except Exception as exc:
+            self._log.error("[qq] 发送异常: %s", exc, exc_info=True)
+            return _fail(f"{exc}", retryable=True)
 
-    def validate(self, task: dict) -> Tuple[bool, str]:
-        return True, ""
+    def _dry_run(
+        self,
+        task: dict,
+        cfg: dict,
+        group_name: str,
+        message: str,
+        abs_images: List[str],
+    ) -> SendResult:
+        from .locator import enum_window_titles
 
-    def cool_down(self) -> None:
-        pass
+        name = task.get("name", "unnamed")
+        keywords = cfg.get("qq_window_keywords") or ["QQ", "Tencent QQ"]
+        titles = [title for _, title in enum_window_titles()]
+        matched = [
+            title
+            for title in titles
+            if any(str(k).lower() in title.lower() for k in keywords if str(k).strip())
+        ]
+        mode = str(cfg.get("search_mode", "search"))
+        if not matched:
+            return SendResult(
+                success=False,
+                task_name=name,
+                plugin_name=self.get_name(),
+                detail="[试运行] 未找到 QQ 窗口；未点击、未输入、未发送",
+                retryable=False,
+            )
+        return SendResult(
+            success=True,
+            task_name=name,
+            plugin_name=self.get_name(),
+            detail=(
+                f"[试运行] 目标群=「{group_name}」；文本={len(message)} 字；"
+                f"图片={len(abs_images)} 张；模式={mode}；"
+                f"QQ 窗口={matched[0]!r}；未点击、未输入、未发送"
+            ),
+        )
 
     def health_check(self) -> Tuple[bool, str]:
         from .locator import enum_window_titles
-        titles = [t for _, t in enum_window_titles()]
-        for t in titles:
-            if "qq" in t.lower():
+
+        for _, title in enum_window_titles():
+            low = title.strip().lower()
+            if low in ("qq", "tencent qq") or low.startswith("qq -"):
                 return True, "QQ 窗口在线"
         return False, "未检测到 QQ 窗口"
 
 
 def _capture_failure_screenshot(task_name: str, error: str) -> None:
     try:
+        import re
+
         import pyautogui
         from datetime import datetime
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        failed_dir = os.path.join(base, "screenshots", "failed", task_name)
+
+        slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(task_name or "unnamed"))
+        slug = (slug.strip(" .") or "unnamed")[:60]
+        failed_dir = os.path.join(_PROJECT_ROOT, "screenshots", "failed", slug)
         os.makedirs(failed_dir, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(failed_dir, f"{task_name}_{ts}_ERROR.png")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = os.path.join(failed_dir, f"{ts}_ERROR.png")
         pyautogui.screenshot(path)
-        import logging
         logging.getLogger("AnySender").warning(f"失败截图已保存: {path}")
     except Exception as ex:
-        import logging
         logging.getLogger("AnySender").warning(f"截图保存失败: {ex}")

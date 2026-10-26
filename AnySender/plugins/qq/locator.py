@@ -1,4 +1,5 @@
 import ctypes
+import ctypes.wintypes
 import time
 from difflib import SequenceMatcher
 from typing import List, Tuple
@@ -115,9 +116,33 @@ def get_input_target(qq_rect: Tuple[int, int, int, int],
 
     left, top, right, bottom = qq_rect
     width, height = right - left, bottom - top
-    x = int(left + width * float(sec.get("relative_x", 0.50)))
-    y = int(top + height * float(sec.get("relative_y", 0.86)))
+    rx = float(sec.get("relative_x", 0.50))
+    ry = float(sec.get("relative_y", 0.86))
+    rw = float(sec.get("relative_w", 0) or 0)
+    rh = float(sec.get("relative_h", 0) or 0)
+    # 校准器存的是整个输入区域的 bbox；点在区域中心而不是左上角。
+    # 旧实现忽略 relative_w/h，点击点会落在区域左上边缘（按钮/边框上）。
+    cx = rx + rw / 2 if rw > 0 else rx
+    cy = ry + rh / 2 if rh > 0 else ry
+    if not (0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0):
+        raise RuntimeError(
+            f"input_target 相对坐标越界: ({cx:.4f}, {cy:.4f})"
+        )
+    x = int(left + width * cx)
+    y = int(top + height * cy)
+    if not point_in_rect(x, y, qq_rect):
+        raise RuntimeError(
+            f"input_target 点击点落在 QQ 窗口外: ({x}, {y}) / {qq_rect}"
+        )
     return x, y
+
+
+def point_in_rect(x: int, y: int, rect: Tuple[int, int, int, int],
+                  margin: int = 2) -> bool:
+    left, top, right, bottom = rect
+    return (left + margin) <= x <= (right - margin) and (
+        top + margin
+    ) <= y <= (bottom - margin)
 
 
 def get_validation_region(qq_rect: Tuple[int, int, int, int],

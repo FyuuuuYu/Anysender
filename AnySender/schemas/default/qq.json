@@ -12,6 +12,10 @@
     "send_mode": {"type": "string", "enum": ["enter", "ctrl_enter", "none"]},
     "text_interval_sec": {"type": "number", "minimum": 0},
     "search_mode": {"type": "string", "enum": ["search", "browse"]},
+    "require_chat_verify": {"type": "boolean"},
+    "pre_send_check": {"type": "boolean"},
+    "ocr_precheck": {"type": "boolean"},
+    "dry_run": {"type": "boolean"},
     "input_target": {
       "type": "object",
       "properties": {
